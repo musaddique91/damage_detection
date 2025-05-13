@@ -13,6 +13,7 @@ import os
 from datetime import datetime
 import matplotlib.pyplot as plt
 from io import BytesIO
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 app.add_middleware(
