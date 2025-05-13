@@ -1,6 +1,8 @@
 from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import FileResponse
 from typing import List
+
+from reportlab.lib.utils import ImageReader
 from ultralytics import YOLO
 from PIL import Image
 from reportlab.lib.pagesizes import landscape, A4
@@ -9,8 +11,17 @@ import textwrap
 import uuid
 import os
 from datetime import datetime
+import matplotlib.pyplot as plt
+from io import BytesIO
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Allow all origins
+    allow_credentials=False,  # Must be False when using "*" for allow_origins
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 model = YOLO("best.pt")
 
@@ -67,6 +78,30 @@ def draw_cover_page(c, total_images):
 
     c.showPage()
 
+
+def draw_summary_chart(c, class_counts):
+    if not class_counts:
+        return
+
+    labels = list(class_counts.keys())
+    values = [class_counts[k] for k in labels]
+
+    plt.figure(figsize=(10, 4))
+    plt.bar(labels, values, color='steelblue')
+    plt.xlabel('Damage Type')
+    plt.ylabel('Count')
+    plt.title('Summary of Detected Damages')
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+
+    buf = BytesIO()
+    plt.savefig(buf, format='PNG')
+    buf.seek(0)
+    plt.close()
+    img_reader = ImageReader(buf)
+    c.drawImage(img_reader, 100, 200, width=600, height=300)
+    c.showPage()
+
 def draw_images_and_table(c, index, total, original_path, result_path, result_data, y_start):
     c.setFont("Helvetica-Bold", 16)
     c.drawString(50, y_start + 30, f"Image {index} of {total}")
@@ -98,16 +133,19 @@ def draw_images_and_table(c, index, total, original_path, result_path, result_da
     # Just a 2-line gap instead of full page
     c.showPage()
 
-@app.post("/detect/")
+@app.post("/detection-report")
 async def detect_damage(files: List[UploadFile] = File(...)):
     pdf_filename = os.path.join(PDF_DIR, f"{uuid.uuid4()}.pdf")
     c = canvas.Canvas(pdf_filename, pagesize=PAGE_SIZE)
     y_position = PAGE_SIZE[1] - 100
-
+    total_class_counts = {}
     draw_cover_page(c, total_images=len(files))
 
     for index, file in enumerate(files, start=1):
         file_ext = file.filename.split('.')[-1]
+        if file_ext.lower() not in {'jpg', 'jpeg', 'png', 'bmp', 'tiff'}:
+            return {"error": "Invalid file type. Only JPEG, PNG, BMP, and TIFF files are allowed."}
+
         temp_filename = f"{uuid.uuid4()}.{file_ext}"
         temp_path = os.path.join(OUTPUT_DIR, temp_filename)
 
@@ -118,24 +156,23 @@ async def detect_damage(files: List[UploadFile] = File(...)):
 
         detected_path = os.path.join(OUTPUT_DIR, 'runs', os.path.basename(temp_path))
         if not os.path.exists(detected_path):
-            detected_path = detected_path.replace("jpeg", "jpg")
+            detected_path = detected_path[:detected_path.rfind(".")] + ".jpg"
 
         result_data = []
         for box in results[0].boxes:
             cls_id = int(box.cls[0].item())
             conf = float(box.conf[0].item())
             xywh = box.xywh[0].tolist()
+            damage_class = model.names[cls_id]
             result_data.append({
                 "class": model.names[cls_id],
                 "conf": conf,
                 "bbox": [round(x, 2) for x in xywh]
             })
+            total_class_counts[damage_class] = total_class_counts.get(damage_class, 0) + 1
 
         draw_images_and_table(c, index, len(files), temp_path, detected_path, result_data, y_position)
-
+    draw_summary_chart(c, total_class_counts)
     c.save()
     return FileResponse(pdf_filename, media_type="application/pdf", filename="damage_report.pdf")
 
-# if __name__ == "__main__":
-#     import uvicorn
-#     uvicorn.run(app, host="0.0.0.0", port=8600)
