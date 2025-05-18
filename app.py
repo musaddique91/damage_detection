@@ -24,7 +24,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-model = YOLO("best.pt")
+model = YOLO("auto_damage_model.pt")
 
 OUTPUT_DIR = "outputs"
 PDF_DIR = "pdfs"
