@@ -5,3 +5,4 @@ pillow
 opencv-python
 ultralytics
 reportlab
+seaborn

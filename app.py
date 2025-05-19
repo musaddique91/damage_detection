@@ -7,19 +7,19 @@ from ultralytics import YOLO
 from PIL import Image
 from reportlab.lib.pagesizes import landscape, A4
 from reportlab.pdfgen import canvas
-import textwrap
 import uuid
 import os
 from datetime import datetime
 import matplotlib.pyplot as plt
 from io import BytesIO
 from fastapi.middleware.cors import CORSMiddleware
+import seaborn as sns
 
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins
-    allow_credentials=False,  # Must be False when using "*" for allow_origins
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -31,51 +31,93 @@ PDF_DIR = "pdfs"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(PDF_DIR, exist_ok=True)
 
-# Use landscape A4 size
 PAGE_SIZE = landscape(A4)
 
-def draw_cover_page(c, total_images):
+
+def draw_cover_with_details(c, total_images, class_counts):
+    # Header
     c.setFont("Helvetica-Bold", 24)
     c.drawCentredString(PAGE_SIZE[0] / 2, PAGE_SIZE[1] - 40, "Damage Detection Report")
 
+    # Timestamp & total image info
     c.setFont("Helvetica", 10)
-    c.drawCentredString(PAGE_SIZE[0] / 2, PAGE_SIZE[1] - 60, f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-
+    c.drawCentredString(
+        PAGE_SIZE[0] / 2,
+        PAGE_SIZE[1] - 60,
+        f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+    )
     c.setFont("Helvetica", 12)
-    c.setFont("Helvetica", 12)
-    text = (
-        "This report presents the results of an advanced AI-driven vehicle damage detection system.\n\n"
-        "The software is designed to automate the process of identifying vehicle damages by analyzing images of vehicles. "
-        "It detects various types of visible damage, including dents, scratches, cracks, and other structural imperfections. "
-        "By using state-of-the-art deep learning models trained on a wide range of vehicle damage data, the system offers highly accurate and reliable damage detection capabilities.\n\n"
-        "The primary objective of this system is to streamline and accelerate the vehicle inspection process, allowing for faster, "
-        "more consistent, and more accurate assessments compared to manual inspection methods. This technology can be particularly useful "
-        "in industries such as insurance, automotive repair, fleet management, and vehicle rental services, where timely damage detection is critical.\n\n"
-        "The process begins when an image is uploaded to the system, which is then processed by the AI model. The model identifies "
-        "any damages in the image and highlights them with bounding boxes. These bounding boxes correspond to the location of the detected "
-        "damage, and each is accompanied by a confidence score, indicating the likelihood of the damage being correctly identified.\n\n"
-        "The system's AI model is constantly refined and improved to handle a wide variety of vehicle types, damages, and environmental conditions, "
-        "ensuring accurate results in diverse scenarios.\n\n"
-        f"Total Images Processed: {total_images}\n\n"
-        "For each image submitted, this report provides the original image on the left and the processed image with detected damages on the right. "
-        "Below each pair of images, you will find a table listing the detected objects, their class (type of damage), the confidence level for "
-        "each detection, and the corresponding bounding box coordinates. This detailed information allows for easy inspection and validation of the results.\n\n"
-        "By automating this process, the system reduces human error, accelerates claim processing times, and enhances the overall efficiency of vehicle inspections.\n\n"
-        "We hope this report provides valuable insights into the performance and accuracy of the damage detection system, and that it supports the "
-        "continuous improvement of vehicle assessment operations."
+    c.drawCentredString(
+        PAGE_SIZE[0] / 2, PAGE_SIZE[1] - 85, f"Total Images Processed: {total_images}"
     )
 
-    text_object = c.beginText(50, 500)
-    text_object.setFont("Helvetica", 13)
-    wrapped_lines = []
-    for paragraph in text.split("\n\n"):
-        lines = textwrap.wrap(paragraph, width=120)
-        wrapped_lines.extend(lines + [""])
+    # Policy Details
+    y = PAGE_SIZE[1] - 120
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(50, y, "Policy Details:")
 
-    for line in wrapped_lines:
-        text_object.textLine(line)
+    y -= 25
+    c.setFont("Helvetica", 12)
+    policies = [
+        "Comprehensive",
+        "Zero Depreciation",
+        "Own Damage",
+        "Third-Party Liability Insurance",
+        "Collision Insurance",
+    ]
+    c.drawString(60, y, "Policy Types:")
+    for p in policies:
+        y -= 18
+        c.drawString(80, y, f"- {p}")
 
-    c.drawText(text_object)
+    y -= 30
+    c.drawString(60, y, f"Policy Start Date: {datetime.now().strftime('%Y-%m-%d')}")
+    y -= 20
+    c.drawString(
+        60,
+        y,
+        f"Policy Renewal Date: {(datetime.now().replace(year=datetime.now().year + 1)).strftime('%Y-%m-%d')}",
+    )
+
+    # Table Headers
+    y -= 60
+    table_top = y
+    row_height = 25
+    col1_x, col2_x, col3_x = 50, 300, 450
+    col_widths = [250, 150, 150]
+    table_width = sum(col_widths)
+
+    # Header row
+    c.setFillColorRGB(0.9, 0.9, 0.9)
+    c.rect(col1_x, y, table_width, row_height, fill=True, stroke=True)
+    c.setFillColorRGB(0, 0, 0)
+    c.setFont("Helvetica-Bold", 12)
+    c.drawString(col1_x + 10, y + 7, "Damage Type")
+    c.drawString(col2_x + 10, y + 7, "Count")
+    c.drawString(col3_x + 10, y + 7, "Covered")
+
+    # Draw vertical column lines
+    c.line(col2_x, y, col2_x, y - (row_height * (len(class_counts) + 1)))
+    c.line(col3_x, y, col3_x, y - (row_height * (len(class_counts) + 1)))
+    c.line(
+        col1_x + table_width,
+        y,
+        col1_x + table_width,
+        y - (row_height * (len(class_counts) + 1)),
+    )
+
+    # Table rows
+    c.setFont("Helvetica", 12)
+    y -= row_height
+    for damage_type, count in class_counts.items():
+        # Draw full row rectangle (optional)
+        c.rect(col1_x, y, table_width, row_height, fill=False, stroke=True)
+
+        # Add data in columns
+        c.drawString(col1_x + 10, y + 7, damage_type)
+        c.drawString(col2_x + 10, y + 7, str(count))
+        c.drawString(col3_x + 10, y + 7, "Yes")
+        y -= row_height
 
     c.showPage()
 
@@ -87,65 +129,81 @@ def draw_summary_chart(c, class_counts):
     labels = list(class_counts.keys())
     values = [class_counts[k] for k in labels]
 
-    plt.figure(figsize=(10, 4))
-    plt.bar(labels, values, color='steelblue')
-    plt.xlabel('Damage Type')
-    plt.ylabel('Count')
-    plt.title('Summary of Detected Damages')
-    plt.xticks(rotation=45)
+    # Set seaborn style
+    sns.set_theme(style="whitegrid")
+    plt.figure(figsize=(12, 5))  # Slightly bigger chart
+
+    # Create bar plot with seaborn
+    ax = sns.barplot(x=labels, y=values, palette="viridis")
+    ax.set_xlabel("Damage Type", fontsize=12)
+    ax.set_ylabel("Count", fontsize=12)
+    ax.set_title("Summary of Detected Damages", fontsize=14)
+    plt.xticks(rotation=30)
     plt.tight_layout()
 
+    # Save to buffer and draw on PDF
     buf = BytesIO()
-    plt.savefig(buf, format='PNG')
+    plt.savefig(buf, format="PNG")
     buf.seek(0)
     plt.close()
+
     img_reader = ImageReader(buf)
-    c.drawImage(img_reader, 100, 200, width=600, height=300)
+
+    # Adjusted position and size for slightly bigger appearance
+    chart_width = 680  # Increase width
+    chart_height = 340  # Increase height
+    chart_x = (PAGE_SIZE[0] - chart_width) / 2  # Centered horizontally
+    chart_y = 180  # Adjusted Y position for fit
+
+    c.drawImage(img_reader, chart_x, chart_y, width=chart_width, height=chart_height)
     c.showPage()
 
-def draw_images_and_table(c, index, total, original_path, result_path, result_data, y_start):
+
+def draw_images_and_table(
+    c, index, total, original_path, result_path, result_data, y_start
+):
     c.setFont("Helvetica-Bold", 16)
     c.drawString(50, y_start + 30, f"Image {index} of {total}")
 
-    # Draw original image (larger)
     c.setFont("Helvetica", 12)
     c.drawString(50, y_start, "Original Image")
     c.drawImage(original_path, 50, y_start - 260, width=350, height=250)
 
-    # Draw result image (larger)
     c.drawString(450, y_start, "Detected Image")
     c.drawImage(result_path, 450, y_start - 260, width=350, height=250)
 
-    # Draw table below
     y = y_start - 280
     c.setFont("Helvetica-Bold", 12)
     c.drawString(50, y, "Detected Objects:")
     y -= 20
     c.setFont("Helvetica-Bold", 14)
     c.drawString(50, y, "Class")
-    c.drawString(250, y, "Confidence")
+    c.drawString(250, y, "Accuracy")
 
     c.setFont("Helvetica", 12)
     for r in result_data:
         y -= 15
-        c.drawString(50, y, r['class'])
-        c.drawString(250, y, f"{r['conf']:.2f}")
+        c.drawString(50, y, r["class"])
+        c.drawString(250, y, f"{r['conf'] * 100:.2f}%")
 
-    # Just a 2-line gap instead of full page
     c.showPage()
+
 
 @app.post("/detection-report")
 async def detect_damage(files: List[UploadFile] = File(...)):
     pdf_filename = os.path.join(PDF_DIR, f"{uuid.uuid4()}.pdf")
     c = canvas.Canvas(pdf_filename, pagesize=PAGE_SIZE)
-    y_position = PAGE_SIZE[1] - 100
+
     total_class_counts = {}
-    draw_cover_page(c, total_images=len(files))
+
+    detection_results = []
 
     for index, file in enumerate(files, start=1):
-        file_ext = file.filename.split('.')[-1]
-        if file_ext.lower() not in {'jpg', 'jpeg', 'png', 'bmp', 'tiff'}:
-            return {"error": "Invalid file type. Only JPEG, PNG, BMP, and TIFF files are allowed."}
+        file_ext = file.filename.split(".")[-1]
+        if file_ext.lower() not in {"jpg", "jpeg", "png", "bmp", "tiff"}:
+            return {
+                "error": "Invalid file type. Only JPEG, PNG, BMP, and TIFF files are allowed."
+            }
 
         temp_filename = f"{uuid.uuid4()}.{file_ext}"
         temp_path = os.path.join(OUTPUT_DIR, temp_filename)
@@ -153,11 +211,13 @@ async def detect_damage(files: List[UploadFile] = File(...)):
         with open(temp_path, "wb") as f:
             f.write(await file.read())
 
-        results = model(temp_path, save=True, project=OUTPUT_DIR, name='runs', exist_ok=True)
+        results = model(
+            temp_path, save=True, project=OUTPUT_DIR, name="runs", exist_ok=True
+        )
 
-        detected_path = os.path.join(OUTPUT_DIR, 'runs', os.path.basename(temp_path))
+        detected_path = os.path.join(OUTPUT_DIR, "runs", os.path.basename(temp_path))
         if not os.path.exists(detected_path):
-            detected_path = detected_path[:detected_path.rfind(".")] + ".jpg"
+            detected_path = detected_path[: detected_path.rfind(".")] + ".jpg"
 
         result_data = []
         for box in results[0].boxes:
@@ -165,15 +225,32 @@ async def detect_damage(files: List[UploadFile] = File(...)):
             conf = float(box.conf[0].item())
             xywh = box.xywh[0].tolist()
             damage_class = model.names[cls_id]
-            result_data.append({
-                "class": model.names[cls_id],
-                "conf": conf,
-                "bbox": [round(x, 2) for x in xywh]
-            })
-            total_class_counts[damage_class] = total_class_counts.get(damage_class, 0) + 1
+            result_data.append(
+                {
+                    "class": damage_class,
+                    "conf": conf,
+                    "bbox": [round(x, 2) for x in xywh],
+                }
+            )
+            total_class_counts[damage_class] = (
+                total_class_counts.get(damage_class, 0) + 1
+            )
 
-        draw_images_and_table(c, index, len(files), temp_path, detected_path, result_data, y_position)
+        detection_results.append((index, temp_path, detected_path, result_data))
+
+    # Draw the combined cover and details table
+    draw_cover_with_details(c, total_images=len(files), class_counts=total_class_counts)
+
+    # Then draw chart and image sections
     draw_summary_chart(c, total_class_counts)
-    c.save()
-    return FileResponse(pdf_filename, media_type="application/pdf", filename="damage_report.pdf")
 
+    y_position = PAGE_SIZE[1] - 100
+    for index, original_path, detected_path, result_data in detection_results:
+        draw_images_and_table(
+            c, index, len(files), original_path, detected_path, result_data, y_position
+        )
+
+    c.save()
+    return FileResponse(
+        pdf_filename, media_type="application/pdf", filename="damage_report.pdf"
+    )
